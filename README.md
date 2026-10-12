@@ -90,6 +90,31 @@ tests, how many were flagged), how often a broken test was mislabelled as flaky,
 many runs each flaky test took to be confirmed. CI runs a short version on every push and
 posts the table to the job summary.
 
+### Results
+
+23 zoo tests, 2 runs per commit, mean of 5 independent trials:
+
+| Runs so far | Precision | Recall | Broken tests labelled flaky |
+|---|---|---|---|
+| 4 | 100% | 47% | 0 |
+| 10 | 100% | 67% | 0 |
+| 20 | 100% | 83% | 0 |
+
+Average number of runs before each flaky test was confirmed:
+
+| Flaky test | Root cause | Confirmed after | Caught in |
+|---|---|---|---|
+| `async_completion_order` | assumes task completion order | 2.0 runs | 5/5 trials |
+| `order_victim` | state leaked by another test | 4.4 runs | 5/5 trials |
+| `random_30pct` | fails 30% of the time | 6.4 runs | 5/5 trials |
+| `timing_worker_timeout` | timeout races a slow worker | 6.4 runs | 5/5 trials |
+| `random_10pct` | fails 10% of the time | 12.0 runs | 4/5 trials |
+| `random_3pct` | fails 3% of the time | 18.0 runs | 1/5 trials |
+
+Nothing is ever wrongly flagged, because a test is only called flaky on direct same-commit
+evidence. The cost is recall on rare flakes: a test that fails 3% of the time usually needs
+more than 20 runs of history to be caught.
+
 ## Tests
 
 ```bash
@@ -115,7 +140,8 @@ input (entity expansion, XXE). See the [test plan](docs/TEST_PLAN.md).
 
 - [docs/DESIGN.md](docs/DESIGN.md): architecture, data model, decisions and trade-offs.
 - [docs/TEST_PLAN.md](docs/TEST_PLAN.md): risks, test levels, and the case-by-case plan.
-- [docs/INTERVIEW_PREP.md](docs/INTERVIEW_PREP.md): questions this design invites.
+- [docs/FAQ.md](docs/FAQ.md): questions this design invites, and exercises for
+  understanding it by breaking it.
 
 ## License
 
