@@ -13,7 +13,11 @@ authors = [{ name = "Eswar Varun S", email = "s.eswarvarun@gmail.com" }]
 dependencies = ["defusedxml>=0.7"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+# The serverless backend: Lambda's runtime already ships boto3, so only local use needs it.
+aws = ["boto3>=1.35"]
+dev = ["pytest>=8", "ruff>=0.6", "boto3>=1.35", "moto[dynamodb]>=5"]
+# The CDK app in infra/ (deploying also needs Node.js for `npx aws-cdk@2`).
+infra = ["aws-cdk-lib>=2.170", "constructs>=10"]
 
 [project.scripts]
 flakehunter = "flakehunter.cli:main"
@@ -32,6 +36,6 @@ target-version = "py312"
 select = ["E", "F", "I", "B", "UP", "SIM", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "E501"]
+"tests/**" = ["S101", "E501", "S105", "S311"]
 "zoo/**" = ["S101", "S311"]
 "bench/**" = ["S603"]

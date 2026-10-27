@@ -8,6 +8,7 @@ exhausting memory.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from xml.etree.ElementTree import Element
 
@@ -103,6 +104,8 @@ def _message(element: Element) -> str | None:
 
 def _seconds(value: str | None) -> float:
     try:
-        return max(0.0, float(value)) if value else 0.0
+        seconds = float(value) if value else 0.0
     except ValueError:
         return 0.0
+    # float() accepts "inf" and "nan", which no store can order or DynamoDB can hold.
+    return seconds if math.isfinite(seconds) and seconds > 0 else 0.0

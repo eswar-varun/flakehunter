@@ -1,0 +1,279 @@
+:root {
+  --bg: #f7f7f8;
+  --surface: #ffffff;
+  --text: #1c1d21;
+  --muted: #5d6170;
+  --border: #e2e3e8;
+  --accent: #3b5bdb;
+  --broken: #c92a2a;
+  --flaky: #b35c00;
+  --suspect: #7048e8;
+  --stable: #2b8a3e;
+  --skipped: #6b7280;
+  color-scheme: light;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111215;
+    --surface: #1a1b20;
+    --text: #e8e9ee;
+    --muted: #9da1ae;
+    --border: #2c2e36;
+    --accent: #7c95f5;
+    --broken: #ff6b6b;
+    --flaky: #ffa94d;
+    --suspect: #b197fc;
+    --stable: #69db7c;
+    --skipped: #9ca3af;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.masthead form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+input {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button[type='submit'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.layout {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 960px) {
+  .layout:has(.history) {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+.verdicts,
+.history {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.count {
+  color: var(--muted);
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+td.test {
+  white-space: normal;
+  word-break: break-all;
+}
+
+tr[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  text-align: left;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 0.9rem;
+}
+
+.badge,
+.outcome {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--surface);
+  background: var(--skipped);
+}
+
+.broken,
+.failed,
+.error {
+  --tone: var(--broken);
+}
+.flaky {
+  --tone: var(--flaky);
+}
+.suspect {
+  --tone: var(--suspect);
+}
+.stable,
+.passed {
+  --tone: var(--stable);
+}
+
+.badge,
+.outcome {
+  background: var(--tone, var(--skipped));
+}
+
+.history header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.history h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  word-break: break-all;
+}
+
+.executions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.executions li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.executions time,
+.retry {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.message {
+  flex-basis: 100%;
+  margin: 0;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.empty {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--broken);
+}

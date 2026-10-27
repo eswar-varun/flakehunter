@@ -16,7 +16,40 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev]"
       - run: ruff check .
+      # The CDK tests live in their own job; here they skip because aws-cdk-lib isn't installed.
       - run: pytest -q
+
+  infra:
+    # Synthesizes the CDK stack and checks the CloudFormation template; no AWS account needed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -e ".[dev,infra]"
+      - run: pytest -q tests/test_infra.py
+      - run: npx --yes aws-cdk@2 synth --quiet
+
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
 
   zoo-evaluation:
     # Detection quality is a tested property, not a claim: every push re-measures it.

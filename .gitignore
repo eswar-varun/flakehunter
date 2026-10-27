@@ -8,3 +8,6 @@ build/
 dist/
 *.db
 bench/results/
+cdk.out/
+node_modules/
+dashboard/dist/

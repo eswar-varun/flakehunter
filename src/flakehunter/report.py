@@ -42,8 +42,9 @@ def as_markdown(verdicts: list[Verdict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def as_json(verdicts: list[Verdict]) -> str:
-    return json.dumps([{
+def as_dict(v: Verdict) -> dict[str, object]:
+    """One verdict as plain JSON-ready data: the CLI's JSON output and the API both use it."""
+    return {
         "test_id": v.test_id,
         "status": v.status.value,
         "score": round(v.score, 4),
@@ -53,7 +54,11 @@ def as_json(verdicts: list[Verdict]) -> str:
         "commits": v.commits,
         "flaky_commits": v.flaky_commits,
         "last_failure": v.last_failure,
-    } for v in verdicts], indent=2)
+    }
+
+
+def as_json(verdicts: list[Verdict]) -> str:
+    return json.dumps([as_dict(v) for v in verdicts], indent=2)
 
 
 def _md_escape(text: str) -> str:

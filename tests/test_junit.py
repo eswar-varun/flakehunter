@@ -145,3 +145,10 @@ def test_parse_file_error_names_the_file(tmp_path):
     path.write_text("<testsuite>", encoding="utf-8")
     with pytest.raises(JUnitParseError, match="broken.xml"):
         parse_file(path)
+
+
+@pytest.mark.parametrize("time", ["inf", "nan", "-3", "abc", ""])
+def test_unusable_durations_become_zero(time):
+    [result] = parse_string(f'<testsuite><testcase name="t" time="{time}"/></testsuite>')
+
+    assert result.duration_s == 0.0

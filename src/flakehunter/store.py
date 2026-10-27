@@ -2,8 +2,7 @@
 
 The analysis needs one access pattern: every execution of each test, in time order. The
 schema is shaped for exactly that (an index on results.test_id, runs ordered by
-created_at). The serverless milestone maps the same pattern onto DynamoDB with
-partition key = test_id, sort key = created_at#run_id#attempt.
+created_at). dynamo.py serves the same pattern from DynamoDB for the serverless backend.
 """
 
 from __future__ import annotations
@@ -38,6 +37,10 @@ CREATE INDEX IF NOT EXISTS runs_by_commit ON runs(commit_sha);
 
 class StoreError(ValueError):
     pass
+
+
+class RunConflictError(StoreError):
+    """A run id was reused for a different commit."""
 
 
 class Store:
@@ -75,7 +78,7 @@ class Store:
             if stored_commit != run.commit:
                 # A reused run id would silently merge two commits' results, manufacturing
                 # (or hiding) exactly the pass/fail mix the analysis treats as flakiness.
-                raise StoreError(f"run {run.run_id!r} is already recorded for commit "
+                raise RunConflictError(f"run {run.run_id!r} is already recorded for commit "
                                  f"{stored_commit}, not {run.commit}")
             self._db.executemany(
                 "INSERT OR REPLACE INTO results"
