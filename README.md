@@ -13,7 +13,8 @@ production. FlakeHunter records every CI run, separates **flaky** tests from gen
 **broken** ones, and ranks them by how much evidence there is, so the worst offenders get
 fixed first.
 
-> **Status: milestone 1 of 5.** Detection and ranking work. See the [roadmap](#roadmap).
+> **Status: milestones 1 and 4 of 5.** Detection and ranking work from the CLI, and from a
+> serverless AWS backend with a React dashboard. See the [roadmap](#roadmap).
 
 ```mermaid
 flowchart LR
@@ -21,6 +22,9 @@ flowchart LR
     I --> H[("run history<br/>SQLite")]
     H --> A["flakehunter report"]
     A --> O["broken / flaky / suspect<br/>table · Markdown · JSON"]
+    CI -->|"POST JUnit XML"| API["API Gateway → Lambda"]
+    API --> DB[("DynamoDB")]
+    DASH["React dashboard"] -->|GET| API
 ```
 
 ## How it decides
@@ -70,8 +74,67 @@ the evidence that confirms a flake.
     flakehunter report --format markdown >> "$GITHUB_STEP_SUMMARY"
 ```
 
-(Persist the history file between runs with `actions/cache` or an artifact. The AWS
-backend in milestone 4 removes that step.)
+(Persist the history file between runs with `actions/cache` or an artifact, or upload to
+the AWS backend below, which keeps the history for you.)
+
+## Serverless backend and dashboard
+
+API Gateway → one Lambda → one DynamoDB table, defined with the AWS CDK in
+[`infra/`](infra/). The Lambda runs the same parser and analysis as the CLI. A React and
+TypeScript dashboard in [`dashboard/`](dashboard/) reads from it. Design notes, including
+the DynamoDB key design and how uploads stay idempotent without one big transaction, are in
+[docs/DESIGN.md](docs/DESIGN.md#serverless-backend-milestone-4).
+
+![The dashboard after 10 runs of the zoo: three broken tests, then five flaky ones ranked by Wilson score](docs/dashboard.png)
+
+| Route | Auth | |
+|---|---|---|
+| `POST /projects/{project}/runs?run_id=&commit=` | bearer token | upload a JUnit XML report |
+| `GET /projects/{project}/verdicts[?all=true]` | none | broken, flaky and suspect tests, ranked |
+| `GET /projects/{project}/history?test_id=` | none | one test's executions and verdict |
+
+### Try it locally (no AWS account)
+
+```bash
+pip install -e ".[dev]"
+python dev/local_api.py --seed 10      # real handler + in-memory DynamoDB, 10 runs of the zoo
+cd dashboard && npm ci && npm run dev  # open http://localhost:5173/?project=zoo
+```
+
+### Deploy to AWS
+
+You need an AWS account with credentials configured (`aws configure`), Node.js and
+Python 3.12.
+
+```bash
+pip install -e ".[infra]"
+npx aws-cdk@2 bootstrap    # once per account and region
+npx aws-cdk@2 deploy       # prints ApiUrl and UploadTokenSecretArn
+aws secretsmanager get-secret-value --secret-id <UploadTokenSecretArn> \
+    --query SecretString --output text   # the upload token
+```
+
+Add `-c allowedOrigins=https://your-dashboard.example.com` to restrict CORS to the
+dashboard's origin. Then upload from CI:
+
+```yaml
+- if: always()
+  run: |
+    curl --fail-with-body -X POST "$FLAKEHUNTER_API/projects/my-service/runs?run_id=$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT&commit=$GITHUB_SHA" \
+      -H "Authorization: Bearer $FLAKEHUNTER_TOKEN" -H "Content-Type: application/xml" \
+      --data-binary @report.xml
+  env:
+    FLAKEHUNTER_API: ${{ vars.FLAKEHUNTER_API }}
+    FLAKEHUNTER_TOKEN: ${{ secrets.FLAKEHUNTER_TOKEN }}
+```
+
+Build the dashboard against the deployed API with `VITE_API_URL=<ApiUrl> npm run build`,
+and host `dashboard/dist/` on any static host.
+
+**Cost:** nothing while idle except the Secrets Manager secret (about $0.40 a month).
+Requests are on-demand, and the API is throttled to 10 requests a second. `npx aws-cdk@2
+destroy` removes everything except the DynamoDB table, which is kept on purpose; delete it
+from the console if you want it gone.
 
 ## Does it work? The zoo
 
@@ -118,8 +181,9 @@ more than 20 runs of history to be caught.
 ## Tests
 
 ```bash
-pytest        # 48 tests
+pytest                          # 94 tests (the 7 CDK template tests need .[infra])
 ruff check .
+cd dashboard && npm test        # 32 tests
 ```
 
 The parser is tested against XML produced by the real installed pytest (via `pytester`),
@@ -133,7 +197,7 @@ input (entity expansion, XXE). See the [test plan](docs/TEST_PLAN.md).
 | 1. Detect & rank | JUnit ingest (pytest, Surefire, Jest), history store, broken/flaky/suspect classification, Wilson ranking, CLI, ground-truth zoo + evaluation | ✅ |
 | 2. Root cause: ordering | pytest plugin to replay a given test order; **delta debugging** to find the test that pollutes an order-dependent one in O(log n) reruns; quarantine that doesn't hide new failures | ⏳ |
 | 3. Root cause: signatures | cluster failures by normalised stack-trace signature; GitHub Action | ⏳ |
-| 4. AWS + dashboard | serverless backend (API Gateway, Lambda, DynamoDB via CDK) and a React/TypeScript dashboard | ⏳ |
+| 4. AWS + dashboard | serverless backend (API Gateway, Lambda, DynamoDB via CDK) and a React/TypeScript dashboard built test-first | ✅ |
 | 5. Benchmarks & polish | measured results on the zoo and on a real open-source project's CI history | ⏳ |
 
 ## Docs

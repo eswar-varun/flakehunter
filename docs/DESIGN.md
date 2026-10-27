@@ -116,9 +116,8 @@ patterns is a candidate for milestone 3.)
   serves commit lookups. The primary key `(run_id, test_id, attempt)` makes re-ingest an
   index lookup.
 
-The DynamoDB design for milestone 4 follows the same access pattern: partition key
-`test_id`, sort key `created_at#run_id#attempt`, so one query returns a test's history
-in order.
+The DynamoDB store (D9) serves the same access pattern with its key design instead of
+indexes.
 
 ### D8. Reports show what needs a human
 
@@ -126,11 +125,123 @@ Default output is broken, then flaky, then suspect. Stable and skipped tests app
 `--all`. The Markdown output escapes `|` in test ids, since parametrised ids such as
 `test[a|b]` would otherwise break the table.
 
-## Known limitations (milestone 1)
+## Serverless backend (milestone 4)
+
+```mermaid
+flowchart LR
+    CI["CI job"] -->|"POST JUnit XML<br/>Bearer token"| G["API Gateway<br/>HTTP API, throttled"]
+    D["React dashboard"] -->|GET verdicts / history| G
+    G --> L["Lambda<br/>flakehunter.api"]
+    L -->|"one Query per report"| T[("DynamoDB<br/>one table")]
+    L -.->|upload token, cached 5 min| S["Secrets Manager"]
+```
+
+The Lambda runs the same parser and the same `analyze()` as the CLI; only the store
+changes. Infrastructure is a CDK app in `infra/`, and `dev/local_api.py` runs the real
+handler against an in-memory DynamoDB (moto) for local development.
+
+### D9. DynamoDB keys follow the analysis order
+
+One table, one partition per project:
+
+| Item | `pk` | `sk` |
+|---|---|---|
+| result | `PROJECT#<project>` | `RESULT#<test_id>␟<created_at>␟<run_id>␟<attempt>` |
+| run | `PROJECT#<project>` | `RUN#<run_id>` |
+
+(␟ is U+001F, the ASCII unit separator.)
+
+- **A report is one paginated Query.** Items come back sorted by `sk`, which is exactly
+  "grouped by test, time-ordered within each test", so they stream straight into
+  `analyze()` as the SQLite rows do: O(n) reads, O(h) memory.
+- **One test's history** is `begins_with(sk, "RESULT#<test_id>␟")`. The separator can't
+  occur in a test id (XML 1.0 forbids it), so the prefix is exact: `t::a` doesn't match
+  `t::ab` or `t::a[1]`. With `#` as the separator it would, since parametrised ids contain
+  `#`. A test checks this.
+- **Why not `pk = test_id`** (the plan before this milestone)? A report needs every test,
+  and with one partition per test that means a table scan or a second index just to list
+  the tests. Per-project partitions answer both access patterns with one key design.
+- **Cost of that choice:** a project is one partition, and DynamoDB caps one partition at
+  about 1,000 writes and 3,000 reads per second. CI uploads are far below that. A project
+  that outgrew it would shard the partition key (`PROJECT#<p>#<n>`) and merge the sorted
+  streams.
+
+### D10. Idempotency without one big transaction
+
+SQLite writes a report in one transaction. DynamoDB transactions hold at most 100 items,
+and reports are often bigger, so the guarantees are rebuilt differently:
+
+- **Claim the run first.** One conditional `UpdateItem` records the run's commit and time,
+  or confirms they match: `attribute_not_exists(pk) OR commit_sha = :commit`. Claim and check
+  are one atomic step, so two concurrent uploads that reuse a run id for different commits
+  can't both succeed. The loser gets HTTP 409.
+- **Keys are deterministic.** A result's key is built from the run's *recorded* time (the
+  claim returns it), not the request's. A retried upload stamped "now" therefore lands on
+  the same keys and overwrites instead of double-counting.
+- **Never split a test.** Results are written in `TransactWriteItems` batches of at most 100
+  that keep all attempts of one test together. A crash between batches can leave some
+  tests recorded and others not: each recorded result is still a true observation, and
+  the retry fills in the rest. But it can't leave a failed first attempt visible without
+  the retry that passed, which would briefly turn a flaky test into a "broken" one.
+- **Duplicates inside one report** (the same test listed twice) are collapsed, last one
+  wins, as SQLite's `INSERT OR REPLACE` does. A transaction would otherwise refuse two writes
+  to one item.
+
+Transactional writes cost twice the write units of plain ones. At CI volumes that's
+cents, and it buys the "never split a test" guarantee.
+
+### D11. API surface and security
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `POST /projects/{project}/runs?run_id=&commit=` | bearer token | upload one report (body: JUnit XML) |
+| `GET /projects/{project}/verdicts[?all=true]` | none | the triage list, ranked |
+| `GET /projects/{project}/history?test_id=` | none | one test's executions and verdict |
+
+- **Uploads need a token; reads don't.** Reads expose test names and outcomes, the same as
+  a public CI log. Writes could poison history, so they need a token. The token is generated
+  by Secrets Manager, compared in constant time (`hmac.compare_digest`), and cached in the
+  function for 5 minutes, so a rotated token takes effect without a deploy.
+- **Untrusted input stays untrusted:** the same defusedxml parser, a 4 MB body limit checked
+  before parsing (Lambda's synchronous payload limit is 6 MB), and validated project and
+  run names.
+- **Errors map to status codes:** a bad report or parameters gives 400, a bad token 401,
+  a run/commit conflict 409, an oversized body 413. Anything unexpected gives a 500 that says
+  only "internal error"; the traceback goes to CloudWatch.
+- **One JSON log line per request** (request id, route, project, status, duration) makes
+  CloudWatch Logs Insights queries straightforward.
+- **Least privilege:** the function can read and write items in its table and read its
+  secret. It can't delete or reconfigure the table, and a test asserts that on the
+  synthesized template.
+- **Cost guard rails:** on-demand billing (nothing to pay when idle), throttling on the API
+  stage (10 requests/s, bursts of 20), 2-week log retention, and a retained table so
+  `cdk destroy` never deletes history.
+
+### D12. Dashboard
+
+React and TypeScript with no UI library, built test-first with Vitest and React Testing
+Library. Each feature's tests were written and seen failing before the code. The tests
+query by role and label, the way a user finds things, so they also check accessibility
+basics.
+
+- **The API's ranking is the order.** The table filters (by status chip and by test name)
+  but never re-sorts, so "most urgent first" is decided in one place: `analyze()`.
+- **Stale responses are dropped.** Switching project or toggling "Show stable tests" aborts
+  the previous request. The response is also ignored if it still arrives, which a test
+  covers with a deliberately slow promise.
+- **Test ids go in a query parameter,** never the path: they contain `/`, `::`, `[a|b]`
+  and `#`.
+- **The project is in the URL** (`?project=`), so a link opens the dashboard on it.
+
+## Known limitations
 
 - **Renamed tests lose their history:** identity is the test id.
 - **Test ids containing random values** (e.g. parametrised with timestamps) look like new
   tests every run.
 - **No source awareness:** for "suspect", FlakeHunter can't tell whether the test itself
   changed between commits.
-- **History is a local SQLite file:** CI needs to persist it until the AWS backend lands.
+- **Every report reads the whole history.** That's O(n) per request. Fine for months of
+  CI on one service; beyond that, keep a time window or maintain verdicts incrementally
+  from a DynamoDB stream.
+- **Eventually consistent reads:** a report fetched within a second of an upload may not
+  include it yet.
